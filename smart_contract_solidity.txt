@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
+contract EstateAgency
+{
+   address public owner;
+
+   enum Type { Land, Housing, Uninhabited } // перечисление типов
+   Type public currentType;
+   enum Status {Sold, NotSold} // перечисление статуса (продано, не продано)
+   Status public currentStatus;
+   
+
+   struct AddingAds { // структура объвляения недвижимости
+      address payable seller;
+      uint price;
+      string information;
+      uint square;
+      string photo;
+      Type typeAgency;
+      Status statusAgency;
+      uint phone;
+      bool stat;
+      address buyer;
+   }
+
+   AddingAds[] public allAds; // создание массива для хранения объявлений (уникальный номер)
+
+   // событие при создании объявления о продаже недвижимости
+   event AdsCreated(uint index, string infoAds, uint squareAds, string photoAds, uint phoneAds, Type typeAds, Status statusAds, uint priceAds, uint timestamp);
+   // событие при продаже недвижимости
+   event AdsSold(uint _index, address indexed _from, uint _amount, Status _statusAds, Type _typeAds, uint _timestamp);
+
+   constructor() { // вызывается только один раз, в самом начале.
+      owner = msg.sender;
+      allAds.push(); // необходимо для того, чтобы число начиналось не с 0, а с 1. (уникальный номер)
+   }
+
+   // вывод баланса на смарт-контракте
+    function getBalance() public view returns(uint _balance) {
+        _balance = address(this).balance;
+    }
+   
+   // проверка при покупке
+   modifier buyCheck(uint index){
+      AddingAds memory cAds = allAds[index];
+         require(cAds.statusAgency != Status.Sold, "Sold!");
+         require(!cAds.stat, "Sold!");
+         require(msg.value >= cAds.price, "Less money than you need!");
+         require(msg.sender != cAds.seller, "The owner cannot buy his property!");
+         _;
+   }
+
+   //проверка при выводе денег из смарт-контракта
+       modifier onlyOwner(address _to, uint index) {
+        AddingAds memory cAds = allAds[index];
+        require(msg.sender == owner, "You are not an owner!");
+        require(_to != address(0), "Incorrect address!");
+        require(cAds.statusAgency == Status.Sold, "Sold!");
+        uint _balance = address(this).balance;
+        require(_balance > 0, "The contract is empty!");
+        _; 
+    }
+
+   // создание объявления о недвижимости
+   function createAds(uint _price, string memory _info, uint _square, string memory _photo, uint _phone, Type _type, Status _status) external {
+      // заполнение структуры
+      AddingAds memory newAds = AddingAds({
+         seller: payable(msg.sender),
+         price: _price,
+         information: _info,
+         square: _square,
+         photo: _photo,
+         typeAgency: _type,
+         statusAgency: _status,
+         phone: _phone,
+         stat: false,
+         buyer: address(0)
+         });
+
+         // добавление объявления в массив, создание ему уникального номера
+         allAds.push(newAds);  
+
+         // вызов события о создании объявления о недвижимости
+         emit AdsCreated(allAds.length - 1, _info, _square, _photo, _phone, _type, _status, _price, block.timestamp);
+   }
+
+
+      mapping (address => uint) public payments; // создание связи, чтобы узнать кол-во денег, который отправил покупатель
+
+      // покупка определенного номера недвижимости
+      function buy(uint index) external payable buyCheck(index) { 
+         AddingAds storage cAds = allAds[index];
+         payments[msg.sender] = msg.value;
+         cAds.stat = true;
+         cAds.statusAgency = Status.Sold;
+         cAds.buyer = msg.sender;
+         uint cPrice = cAds.price;
+         uint refund = msg.value - cPrice; // расчёт лишних отправленных денег
+         if(refund > 0) { // проверка на перебор отправленных денег
+            payable(msg.sender).transfer(refund); // возврат лишних денег
+         }
+
+         // вызов события при покупке
+         emit AdsSold(allAds.length - 1, msg.sender, msg.value, Status.Sold, cAds.typeAgency, block.timestamp);
+      }
+
+      // вывод денег из смарт-контракта покупателем.
+		function transferTo(address payable _to, uint index) public onlyOwner(_to,index) {
+         AddingAds memory cAds = allAds[index];
+         _to = cAds.seller;
+        _to.transfer(cAds.price);
+    }
+
+}
